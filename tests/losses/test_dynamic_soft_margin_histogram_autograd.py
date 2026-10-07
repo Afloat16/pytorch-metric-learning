@@ -17,21 +17,16 @@ def embeddings_at_angles(angles, dtype):
     )
 
 
-def scalar_histogram(margins, bins, min_val, previous=None, momentum=0.25):
+def scalar_histogram(margins, bins, min_val):
     """Independent Python probability-mass accumulation, outside autograd."""
-    histogram = (
-        [0.0] * bins
-        if previous is None
-        else [value * (1 - momentum) for value in previous]
-    )
-    weight = 1.0 if previous is None else momentum
+    histogram = [0.0] * bins
     width = 2 * abs(min_val) / bins
     for margin in margins:
         position = (margin - min_val) / width
         low = math.floor(position)
         fraction = position - low
-        histogram[low] += weight * (1 - fraction)
-        histogram[low + 1] += weight * fraction
+        histogram[low] += 1 - fraction
+        histogram[low + 1] += fraction
     total = sum(histogram)
     return [value / total for value in histogram]
 
@@ -97,27 +92,48 @@ class TestDynamicSoftMarginHistogramAutograd(unittest.TestCase):
 
     def test_history_keeps_probability_values_without_graph_nodes(self):
         for dtype in self.floating_dtypes():
-            with self.subTest(dtype=dtype):
-                loss_func = DynamicSoftMarginLoss(num_bins=16, momentum=0.25)
-                labels = torch.tensor([0, 0, 1], device=TEST_DEVICE)
-                previous = None
-                for step in range(3):
-                    embeddings = embeddings_at_angles(
-                        (0.0, 0.7 + step * 0.05, 1.9), dtype
-                    )
-                    loss_func(embeddings, labels)
-                    margins = independent_margins(embeddings).detach().cpu().tolist()
-                    previous = scalar_histogram(margins, 16, -2.0, previous)
-                    self.assertTrue(
-                        torch.allclose(
-                            loss_func.hist_,
-                            embeddings.new_tensor(previous),
-                            rtol=1e-5,
-                            atol=1e-6,
+            for momentum in (0.0, 0.25, 1.0):
+                with self.subTest(dtype=dtype, momentum=momentum):
+                    loss_func = DynamicSoftMarginLoss(num_bins=16, momentum=momentum)
+                    labels = torch.tensor([0, 0, 1], device=TEST_DEVICE)
+                    first_histogram = None
+                    for step in range(3):
+                        embeddings = embeddings_at_angles(
+                            (0.0, 0.7 + step * 0.05, 1.9), dtype
                         )
-                    )
-                    self.assertFalse(loss_func.hist_.requires_grad)
-                    self.assertIsNone(loss_func.hist_.grad_fn)
+                        loss_func(embeddings, labels)
+                        margins = (
+                            independent_margins(embeddings).detach().cpu().tolist()
+                        )
+                        current_histogram = scalar_histogram(margins, 16, -2.0)
+                        if first_histogram is None:
+                            first_histogram = current_histogram
+                        if step == 0 or momentum in (0.0, 1.0):
+                            expected = (
+                                first_histogram
+                                if momentum == 0.0
+                                else current_histogram
+                            )
+                            self.assertTrue(
+                                torch.allclose(
+                                    loss_func.hist_,
+                                    embeddings.new_tensor(expected),
+                                    rtol=1e-5,
+                                    atol=1e-6,
+                                )
+                            )
+                        self.assertTrue(torch.isfinite(loss_func.hist_).all())
+                        self.assertTrue((loss_func.hist_ >= 0).all())
+                        self.assertTrue(
+                            torch.allclose(
+                                loss_func.hist_.sum(),
+                                embeddings.new_tensor(1.0),
+                                rtol=1e-5,
+                                atol=1e-6,
+                            )
+                        )
+                        self.assertFalse(loss_func.hist_.requires_grad)
+                        self.assertIsNone(loss_func.hist_.grad_fn)
 
     def test_current_batch_backward_does_not_update_previous_embeddings(self):
         for dtype in self.floating_dtypes():
