@@ -30,6 +30,32 @@ def anchors_of(indices):
 
 
 class TestPerAnchorReducer(unittest.TestCase):
+    def test_large_anchor_sums_reach_inner_reducer_without_overflow(self):
+        anchors = torch.tensor([0, 0, 1], device=TEST_DEVICE)
+        for dtype in TEST_DTYPES:
+            for inner, expected, gradient in (
+                (MeanReducer(), 32768, [0.5, 0.5, 0.5]),
+                (AvgNonZeroReducer(), 65536, [1.0, 1.0, 0.0]),
+            ):
+                with self.subTest(dtype=dtype, inner=type(inner).__name__):
+                    losses = torch.tensor(
+                        [32768.0, 32768.0, 0.0],
+                        dtype=dtype,
+                        device=TEST_DEVICE,
+                        requires_grad=True,
+                    )
+                    output = PerAnchorReducer(inner, aggregation="sum")(
+                        {"loss": {"losses": losses, "indices": anchors}},
+                        torch.zeros(2, 3, dtype=dtype, device=TEST_DEVICE),
+                        None,
+                    )
+                    torch.testing.assert_close(
+                        output.double(),
+                        output.new_tensor(expected, dtype=torch.float64),
+                    )
+                    output.backward()
+                    torch.testing.assert_close(losses.grad, losses.new_tensor(gradient))
+
     def test_matches_independent_per_anchor_mean(self):
         torch.manual_seed(0)
         batch_size = 40

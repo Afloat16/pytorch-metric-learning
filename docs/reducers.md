@@ -209,6 +209,10 @@ term's anchor indices:
 For losses `[1, 3, 5]` with anchors `[0, 0, 2]`, `aggregation="mean"` gives
 per-anchor values `[2, 5]`, and the default inner reducer returns `3.5`.
 Sums are accumulated in float32 for float16 and bfloat16 losses.
+With `aggregation="sum"`, these values stay in float32 through the inner
+reducer. An anchor's sum can exceed float16's range even when the mean across
+anchors is finite; narrowing before the inner reduction would lose that value.
+The default `aggregation="mean"` retains the input loss dtype.
 
 ## SumReducer
 
