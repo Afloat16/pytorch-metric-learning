@@ -50,6 +50,65 @@ def original_implementation_fast_ap_loss(input, target, num_bins):
 
 
 class TestFastAPLoss(unittest.TestCase):
+    def test_precomputed_matrix_preserves_precision(self):
+        embeddings = torch.eye(4, dtype=torch.float32, device=TEST_DEVICE)
+        labels = torch.tensor([0, 0, 1, 1], device=TEST_DEVICE)
+        mat = torch.tensor(
+            [
+                [0, 0.25, 0.5, 1],
+                [0.25, 0, 1, 0.5],
+                [0.5, 1, 0, 0.75],
+                [1, 0.5, 0.75, 0],
+            ],
+            dtype=torch.float64,
+            device=TEST_DEVICE,
+            requires_grad=True,
+        )
+        loss = FastAPLoss()(embeddings, labels, mat=mat)
+        expected = FastAPLoss()(embeddings.double(), labels, mat=mat)
+        torch.testing.assert_close(loss, expected)
+        torch.testing.assert_close(
+            torch.autograd.grad(loss, mat)[0], torch.autograd.grad(expected, mat)[0]
+        )
+
+    def test_large_positive_histograms(self):
+        labels = (torch.arange(1024) // 512).to(TEST_DEVICE)
+        for dtype in TEST_DTYPES:
+            with self.subTest(dtype=dtype):
+                embeddings = torch.eye(2, dtype=dtype, device=TEST_DEVICE)
+                embeddings = embeddings.repeat_interleave(512, dim=0).requires_grad_()
+                loss = FastAPLoss()(embeddings, labels)
+                torch.testing.assert_close(loss, loss.new_zeros(()))
+                loss.backward()
+                torch.testing.assert_close(
+                    embeddings.grad, torch.zeros_like(embeddings)
+                )
+
+    def test_large_histogram_gradients_match_float64(self):
+        labels = (torch.arange(1024) // 512).to(TEST_DEVICE)
+        rows = [[1, 0], [0.9, 0.45], [0.4, 0.95], [0, 1]]
+        for dtype in TEST_DTYPES:
+            with self.subTest(dtype=dtype):
+                embeddings = torch.tensor(rows, dtype=dtype, device=TEST_DEVICE)
+                embeddings = embeddings.repeat_interleave(256, dim=0).requires_grad_()
+                reference = embeddings.detach().double().requires_grad_()
+                loss = FastAPLoss()(embeddings, labels)
+                expected = FastAPLoss()(reference, labels)
+                original = original_implementation_fast_ap_loss(
+                    torch.nn.functional.normalize(reference), labels, 10
+                )
+                torch.testing.assert_close(expected, original)
+                torch.testing.assert_close(
+                    loss.double(), expected, rtol=0.02, atol=0.002
+                )
+                loss.backward()
+                expected.backward()
+                assert embeddings.grad is not None and reference.grad is not None
+                self.assertTrue(torch.isfinite(embeddings.grad).all())
+                torch.testing.assert_close(
+                    embeddings.grad.double(), reference.grad, rtol=0.05, atol=3e-6
+                )
+
     def test_fast_ap_loss(self):
         num_bins = 5
         loss_func = FastAPLoss(num_bins)

@@ -35,7 +35,7 @@ class FastAPLoss(BaseMetricLossFunction):
         matches, diffs = indexing._get_matches_and_diffs(labels)
         I_pos = matches.to(dtype)
         I_neg = diffs.to(dtype)
-        N_pos = torch.sum(I_pos, dim=1)
+        N_pos = torch.sum(I_pos, dim=1, dtype=_common.accumulation_dtype(dtype))
         safe_N = N_pos > 0
         dist_mat = _common.resolve_matrix(self.distance, embeddings, None, mat)
 
@@ -45,8 +45,9 @@ class FastAPLoss(BaseMetricLossFunction):
             0.0, histogram_max, steps=self.num_edges, device=device, dtype=dtype
         ).view(-1, 1, 1)
         pulse = torch.relu(1 - torch.abs(dist_mat - mid_points) / histogram_delta)
-        pos_hist = torch.t(torch.sum(pulse * I_pos, dim=2))
-        neg_hist = torch.t(torch.sum(pulse * I_neg, dim=2))
+        accumulation_dtype = _common.accumulation_dtype(pulse.dtype)
+        pos_hist = torch.t(torch.sum(pulse * I_pos, dim=2, dtype=accumulation_dtype))
+        neg_hist = torch.t(torch.sum(pulse * I_neg, dim=2, dtype=accumulation_dtype))
 
         total_pos_hist = torch.cumsum(pos_hist, dim=1)
         total_hist = torch.cumsum(pos_hist + neg_hist, dim=1)
@@ -59,7 +60,7 @@ class FastAPLoss(BaseMetricLossFunction):
         loss = (1 - fast_ap) * miner_weights * safe_N
         return {
             "loss": {
-                "losses": loss[safe_N],
+                "losses": loss[safe_N].to(pulse.dtype),
                 "indices": torch.where(safe_N)[0],
             }
         }

@@ -1,5 +1,12 @@
 # Release notes
 
+## Unreleased
+
+- `FastAPLoss` accumulates low-precision histogram counts in float32 so large
+  positive sets no longer produce infinite losses from an intermediate product.
+
+## Released versions
+
 - [3.0.2](3.0.2.md)
 - [3.0.1](3.0.1.md)
 - [3.0.0](3.0.0.md)

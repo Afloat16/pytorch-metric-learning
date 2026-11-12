@@ -27,6 +27,10 @@ batch; the query itself is excluded from its positives and negatives. Bins
 where the product $h_q^+ H_q^+$ or $H_q$ is zero contribute 0. With an
 `indices_tuple`, each query's loss is multiplied by its
 [miner weight](../losses.md#miner-weights).
+For float16 and bfloat16 inputs, histogram counts and the average-precision
+calculation accumulate in float32, preserving the resulting per-query loss
+dtype. This prevents large positive sets from overflowing the
+histogram product even though average precision is bounded by 1.
 
 **Example**:
 

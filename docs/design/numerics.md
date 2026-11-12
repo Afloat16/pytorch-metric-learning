@@ -276,6 +276,14 @@ multiplies its exponential term and a zero weight excludes the sample; the
 paper defines no miner weighting, and version 2's `w - 1` offset scaled terms
 by $e^{w-1}$.
 
+`FastAPLoss` accumulates its soft histogram counts in float32 for float16 and
+bfloat16 inputs. Multiplying a bin count by its cumulative positive count can
+overflow float16 with only 257 positives, before division makes average
+precision at most 1. Widening at the histogram reduction keeps the larger
+bin-by-query-by-reference pulse tensor in the input dtype. The bounded
+per-query loss returns in the pulse dtype, preserving higher-precision caller
+matrices too; float32 and float64 keep their existing arithmetic.
+
 ## Stateful modules
 
 Cross-batch memory stores detached reference embeddings. Each forward validates
