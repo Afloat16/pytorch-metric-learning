@@ -53,6 +53,73 @@ class DeviceIndex(ShardedIndex):
 
 
 class TestRetrievalBackends(unittest.TestCase):
+    @unittest.skipUnless(HAS_FAISS, "Faiss is not installed")
+    def test_faiss_trains_factory_indexes_before_adding_references(self):
+        faiss = retrieval._import_faiss()
+        reference = torch.randn(128, 3, generator=torch.Generator().manual_seed(41))
+        queries = reference[:4] + 0.01
+        expected_distances, expected_indices = (
+            torch.cdist(queries, reference).square().topk(2, largest=False, dim=1)
+        )
+
+        def index_init(dimension):
+            index = faiss.IndexIVFFlat(faiss.IndexFlatL2(dimension), dimension, 2)
+            index.nprobe = 2
+            return index
+
+        for persistent in (False, True):
+            with self.subTest(persistent=persistent):
+                search = retrieval.FaissKNN(
+                    reset_before=not persistent,
+                    reset_after=False,
+                    index_init_fn=index_init,
+                )
+                if persistent:
+                    search.train(reference)
+                    distances, indices = search(queries, 2)
+                else:
+                    distances, indices = search(queries, 2, reference)
+                assert search.index is not None
+                self.assertTrue(search.index.is_trained)
+                self.assertEqual(search.index.ntotal, len(reference))
+                torch.testing.assert_close(indices, expected_indices)
+                torch.testing.assert_close(
+                    distances, expected_distances, atol=1e-6, rtol=1e-5
+                )
+                first_index = search.index
+                if persistent:
+                    with mock.patch.object(
+                        first_index, "train", side_effect=AssertionError("retrained")
+                    ):
+                        repeated = search(queries, 2)
+                    torch.testing.assert_close(repeated[1], indices)
+                    self.assertEqual(first_index.ntotal, len(reference))
+                else:
+                    distances, indices = search(-queries, 2, -reference)
+                    self.assertIsNot(search.index, first_index)
+                    torch.testing.assert_close(indices, expected_indices)
+                    torch.testing.assert_close(
+                        distances, expected_distances, atol=1e-6, rtol=1e-5
+                    )
+
+    @unittest.skipUnless(HAS_FAISS, "Faiss is not installed")
+    def test_faiss_add_preserves_trained_index_centroids(self):
+        faiss = retrieval._import_faiss()
+        reference = torch.randn(128, 3, generator=torch.Generator().manual_seed(42))
+        index = faiss.IndexIVFFlat(faiss.IndexFlatL2(3), 3, 2)
+        index.train(reference)
+        search = retrieval.FaissKNN(
+            reset_before=False, reset_after=False, index_init_fn=lambda _: index
+        )
+        search.train(reference[:10])
+        centroids = torch.as_tensor(index.quantizer.reconstruct_n(0, 2)).clone()
+        with mock.patch.object(index, "train", side_effect=AssertionError("retrained")):
+            search.add(reference[10:20])
+        self.assertEqual(index.ntotal, 20)
+        torch.testing.assert_close(
+            torch.as_tensor(index.quantizer.reconstruct_n(0, 2)), centroids
+        )
+
     def test_fixed_k_adapts_to_each_gallery_and_self_exclusion(self):
         embeddings = torch.tensor([[0.0], [2.0], [3.0], [7.0]], device=TEST_DEVICE)
         labels = torch.tensor([0, 0, 1, 1], device=TEST_DEVICE)

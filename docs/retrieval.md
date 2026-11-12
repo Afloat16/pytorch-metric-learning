@@ -290,6 +290,9 @@ evaluation.FaissKNN(reset_before=True, reset_after=True, index_init_fn=None, gpu
 - **reset_after**: Discard the index after every call.
 - **index_init_fn**: Callable returning a Faiss index for a dimension. Defaults to
   `faiss.IndexFlatL2`, whose distances are squared Euclidean.
+  An index that reports `is_trained=False`, such as an IVF index, is trained on
+  the reference embeddings before its first addition. Already trained indexes
+  retain their learned state when references are added.
 - **gpus**: A non-empty list or tuple of Faiss GPU indices for the search.
   Without it, CUDA queries use all GPUs visible to Faiss. A value that is not a
   list or tuple raises `TypeError`; an empty one raises `ValueError`.

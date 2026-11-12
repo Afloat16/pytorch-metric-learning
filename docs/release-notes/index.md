@@ -1,5 +1,13 @@
 # Release notes
 
+## Unreleased
+
+- `FaissKNN` trains indexes returned by `index_init_fn` before their first
+  reference addition when training is required. This supports IVF indexes in
+  both persistent and one-call searches without retraining existing indexes.
+
+## Published versions
+
 - [3.0.2](3.0.2.md)
 - [3.0.1](3.0.1.md)
 - [3.0.0](3.0.0.md)
