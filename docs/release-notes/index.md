@@ -1,5 +1,14 @@
 # Release notes
 
+## Unreleased
+
+- `FastAPLoss` computes low-precision histograms and average precision in
+  float32, preventing infinite losses from overflowing positive-histogram
+  products and improving bfloat16 value and gradient accuracy. Per-query
+  losses retain the embedding dtype.
+
+## Published versions
+
 - [3.0.2](3.0.2.md)
 - [3.0.1](3.0.1.md)
 - [3.0.0](3.0.0.md)

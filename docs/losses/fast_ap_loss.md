@@ -28,6 +28,11 @@ where the product $h_q^+ H_q^+$ or $H_q$ is zero contribute 0. With an
 `indices_tuple`, each query's loss is multiplied by its
 [miner weight](../losses.md#miner-weights).
 
+For float16 and bfloat16 embeddings, histogram construction, accumulation,
+and the average-precision calculation use float32. This prevents histogram
+products from overflowing in batches with many positives and retains small
+bin contributions. Per-query loss values retain the embedding dtype.
+
 **Example**:
 
 ```python
