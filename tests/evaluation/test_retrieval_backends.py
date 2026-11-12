@@ -53,6 +53,32 @@ class DeviceIndex(ShardedIndex):
 
 
 class TestRetrievalBackends(unittest.TestCase):
+    def test_empty_query_preserves_requested_neighbor_width(self):
+        reference = torch.tensor([[0.0], [1.0], [2.0]], device=TEST_DEVICE)
+        query = reference[:0]
+        searches: list[retrieval.CustomKNN | retrieval.FaissKNN] = [
+            retrieval.CustomKNN(LpDistance(), batch_size=batch_size)
+            for batch_size in (None, 2)
+        ]
+        if HAS_FAISS:
+            searches.append(retrieval.FaissKNN())
+        for search in searches:
+            for k in (0, 1, 2):
+                for include_query in (False, True):
+                    if isinstance(search, retrieval.FaissKNN) and k == 0:
+                        continue
+                    with self.subTest(
+                        backend=type(search).__name__,
+                        k=k,
+                        include_query=include_query,
+                    ):
+                        distances, indices = search(query, k, reference, include_query)
+                        self.assertEqual(distances.shape, (0, k))
+                        self.assertEqual(indices.shape, (0, k))
+                        self.assertEqual(distances.device, query.device)
+                        self.assertEqual(indices.device, query.device)
+                        self.assertEqual(indices.dtype, torch.long)
+
     def test_fixed_k_adapts_to_each_gallery_and_self_exclusion(self):
         embeddings = torch.tensor([[0.0], [2.0], [3.0], [7.0]], device=TEST_DEVICE)
         labels = torch.tensor([0, 0, 1, 1], device=TEST_DEVICE)

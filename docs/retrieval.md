@@ -38,6 +38,8 @@ results, the last neighbor is removed instead. This assumes the query is the
 first `len(query)` rows of `reference`, which
 [`AccuracyCalculator`](accuracy_calculation.md#getting-accuracy) validates.
 Every index must address a row of the `reference` passed to that call.
+An empty query batch returns tensors with shape `(0, k)`, including when
+self-matches are excluded, provided the reference supports the requested `k`.
 `AccuracyCalculator` raises `ValueError` for indices of another shape or
 outside the reference set. It calls `knn_func` under `torch.no_grad()` with the
 [number of neighbors its selected metrics need](accuracy_calculation.md#neighbors-retrieved).

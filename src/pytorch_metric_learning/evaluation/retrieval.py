@@ -214,8 +214,9 @@ def _return_results(
         matches_self_idx = indices == self_idx.unsqueeze(1)
         row_has_match = torch.any(matches_self_idx, dim=1)
         matches_self_idx[~row_has_match, -1] = True
-        indices = indices[~matches_self_idx].view(indices.shape[0], -1)
-        distances = distances[~matches_self_idx].view(distances.shape[0], -1)
+        shape = (indices.shape[0], indices.shape[1] - 1)
+        indices = indices[~matches_self_idx].view(shape)
+        distances = distances[~matches_self_idx].view(shape)
     return distances, indices
 
 
