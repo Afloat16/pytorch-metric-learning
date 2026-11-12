@@ -1,4 +1,5 @@
 import unittest
+from contextlib import nullcontext
 
 import torch
 import torch.nn.functional as F
@@ -11,6 +12,54 @@ HYPERPARAMETERS = [[25, 25, 1, 1e-4], [10, 10, 2, 1e-5], [5, 5, 5, 1e-6]]
 
 
 class TestVICRegLoss(unittest.TestCase):
+    def test_covariance_accumulation_remains_finite(self):
+        rows = 1024
+        covariance = rows * 100 / (rows - 1)
+        cases = [(dtype, TEST_DEVICE, None) for dtype in TEST_DTYPES]
+        cases += [
+            (torch.float32, torch.device("cpu"), dtype)
+            for dtype in (torch.float16, torch.bfloat16)
+        ]
+        for dtype, device, autocast_dtype in cases:
+            with self.subTest(
+                dtype=dtype, device=device, autocast_dtype=autocast_dtype
+            ):
+                embeddings = (
+                    torch.tensor(
+                        [[10.0, 10.0], [-10.0, -10.0]],
+                        dtype=dtype,
+                        device=device,
+                    )
+                    .repeat(rows // 2, 1)
+                    .requires_grad_()
+                )
+                reference = embeddings.detach().clone().requires_grad_()
+                context = (
+                    torch.autocast(device_type="cpu", dtype=autocast_dtype)
+                    if autocast_dtype is not None
+                    else nullcontext()
+                )
+                with context:
+                    loss = VICRegLoss()(embeddings, reference)
+                torch.testing.assert_close(
+                    loss.double(),
+                    loss.new_tensor(2 * covariance**2, dtype=torch.float64),
+                    rtol=1e-5,
+                    atol=0,
+                )
+                loss.backward()
+                expected_gradient = (
+                    2 * covariance * embeddings.detach().double() / (rows - 1)
+                )
+                for inputs in (embeddings, reference):
+                    assert inputs.grad is not None
+                    torch.testing.assert_close(
+                        inputs.grad.double(),
+                        expected_gradient,
+                        rtol=helpers.rtol(dtype),
+                        atol=1e-6,
+                    )
+
     def test_vicreg_loss(self):
         torch.manual_seed(3459)
         for dtype in TEST_DTYPES:
@@ -61,7 +110,9 @@ class TestVICRegLoss(unittest.TestCase):
 
                     rtol = helpers.rtol(dtype)
 
-                    self.assertTrue(torch.isclose(loss, correct_loss, rtol=rtol))
+                    self.assertTrue(
+                        torch.isclose(loss.double(), correct_loss.double(), rtol=rtol)
+                    )
 
     def test_batches_smaller_than_two_rows_are_rejected(self):
         for rows in (0, 1):

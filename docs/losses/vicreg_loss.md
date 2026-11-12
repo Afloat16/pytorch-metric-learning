@@ -47,6 +47,10 @@ $\frac{1}{nd}\sum_i \lVert z_i - z'_i \rVert_2^2$, as in the paper's
 pseudocode and the authors' implementation. The variance term is
 $\frac{\mu}{2}\left[v(Z) + v(Z')\right]$, also following the authors'
 implementation; $\gamma$ is fixed at 1.
+Float16 and bfloat16 inputs are widened to float32 for all three statistics,
+and the result stays in float32. The loss computes outside autocast so the
+covariance matrix multiplication is not narrowed again. This avoids overflow
+in its unnormalized product before division by $n - 1$.
 
 **Paper settings**: The defaults $\lambda = 25$, $\mu = 25$, $\nu = 1$ are the
 paper's.

@@ -278,6 +278,13 @@ by $e^{w-1}$.
 
 ## Stateful modules
 
+`VICRegLoss` computes its statistics in float32 for low-precision inputs and
+outside autocast. Its covariance matrix divides a matrix product by `n - 1`,
+so the product can overflow float16 while the covariance and final objective
+are representable: 1024 alternating rows of `[10, 10]` and `[-10, -10]` have
+a product of 102400 but covariance near 100. Widening before multiplication
+and keeping the loss wide also allows callers to scale an unbounded penalty.
+
 Cross-batch memory stores detached reference embeddings. Each forward validates
 shapes, devices, the enqueue mask, and exact label conversion to `label_dtype`
 (a round trip, because `torch.can_cast` accepted int64 to int32 and merged

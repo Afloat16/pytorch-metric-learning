@@ -1,5 +1,12 @@
 # Release notes
 
+## Unreleased
+
+- `VICRegLoss` accumulates low-precision statistics in float32 outside autocast,
+  preventing covariance products from overflowing before normalization.
+
+## Released versions
+
 - [3.0.2](3.0.2.md)
 - [3.0.1](3.0.1.md)
 - [3.0.0](3.0.0.md)
