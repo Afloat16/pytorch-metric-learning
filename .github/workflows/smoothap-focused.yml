@@ -19,4 +19,4 @@ jobs:
           key: code-polishy-${{ runner.os }}-${{ hashFiles('.code-polishy.lock.json') }}
       - run: ./code-polishyw setup
       - run: ./code-polishyw docs read agent-workflows
-      - run: ./code-polishyw design-context --help
+      - run: ./code-polishyw task-start --files src/pytorch_metric_learning/losses/smooth_ap_loss.py tests/losses/test_smooth_ap_loss.py docs/losses/smooth_ap_loss.md docs/design/numerics.md docs/release-notes/index.md --format json
