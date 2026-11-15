@@ -210,4 +210,6 @@ class TestSmoothAPMemory(unittest.TestCase):
                 self.assertEqual(loss.item(), 0)
                 loss.backward()
                 assert embeddings.grad is not None
-                self.assertTrue(torch.equal(embeddings.grad, torch.zeros_like(embeddings)))
+                self.assertTrue(
+                    torch.equal(embeddings.grad, torch.zeros_like(embeddings))
+                )
