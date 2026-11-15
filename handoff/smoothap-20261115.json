@@ -1,0 +1,91 @@
+{
+  "created_at": "2026-11-15T02:12:00Z",
+  "status": "validated_ready_for_user_submission",
+  "upstream": "KevinMusgrave/pytorch-metric-learning",
+  "head": "Afloat16:perf/smoothap-positive-ranks-20261115",
+  "commit": "c7fe549083aaa0b832d9185642f12c26cceb6b00",
+  "base": "b95a42310f50720a766b91008470b278364f705d",
+  "validation_commit": "9b2ad1b36f2b0c2d022ef42145b81f3ea8de7bbf",
+  "validation_url": "https://github.com/Afloat16/pytorch-metric-learning/actions/runs/43665623560",
+  "title": "Reduce SmoothAP rank storage to positive candidates",
+  "body": "## Problem\n\nSmoothAP builds an `N × N × N` comparison tensor although only positive query/candidate ranks contribute to average precision. With a fixed number of examples per class, most of that storage and backward work is unused.\n\n## Change\n\nCalculate ranks only for the `P` positive pairs belonging to valid queries, using `P × N` comparisons. Each pair still ranks against the entire batch. The self-inclusive positive convention, candidate self-comparison mask, singleton-query handling, and miner weights are preserved. Half-precision per-query accumulation uses float32 before restoring the output dtype.\n\nAdd a retained-autograd-storage regression, all-one-class reference coverage, and differentiable-zero cases for empty/singleton/all-unique batches. Update the loss documentation, numerical design notes, and release notes.\n\n## Validation\n\n[Successful isolated validation run](https://github.com/Afloat16/pytorch-metric-learning/actions/runs/43665623560) checks the exact source/test/documentation blobs in `c7fe549083aaa0b832d9185642f12c26cceb6b00` against upstream `b95a42310f50720a766b91008470b278364f705d`.\n\n- The new storage test fails on unchanged upstream: 8,621,056 retained bytes exceed its 2,097,152-byte budget; it passes with the change.\n- Focused value, gradient, distance-matrix, and composition coverage: **44 tests and 272 subtests passed**.\n- Complete CPU suite: **1,531 tests and 2,485 subtests passed; 10 tests deselected**.\n- Ruff formatting/lint, ty, strict MkDocs, scoped Code Polishy checks, dependency review, and the post-install supply-chain check all passed.\n\nValues and gradients match the existing independent float64 reference within its dtype-specific tolerances; no bitwise-equivalence guarantee is intended.\n\n### Same-run CPU comparison\n\nUbuntu 24.04.5, Python 3.12.13, PyTorch 2.14.0+cu130 running on CPU, one Torch thread, float32 embeddings of dimension 32. Both implementations use the same inputs and settings. Timings are median forward+backward times after two warmups and five alternating measurements.\n\n| Batch / examples per class | Before → after ms | Retained saved-tensor bytes before → after |\n| --- | ---: | ---: |\n| 64 / 4 | 3.408 → 0.693 | 1,119,744 → 123,648 |\n| 128 / 4 | 22.372 → 1.517 | 8,637,440 → 443,904 |\n| 256 / 4 | 307.319 → 3.160 | 68,032,512 → 1,674,240 |\n| 64 / 64 | 1.014 → 2.361 | 1,119,744 → 1,705,728 |\n\nThe byte counts measure unique storages retained by autograd, **not system or GPU peak memory**. The one-class case still has `P = N²`, remains cubic, and has extra indexing overhead; this optimization targets batches with sparse positive pairs. The validation workflow stays on a separate fork branch and is not included in this PR.\n",
+  "prefilled_url": "https://github.com/KevinMusgrave/pytorch-metric-learning/compare/master...Afloat16:pytorch-metric-learning:perf/smoothap-positive-ranks-20261115?expand=1&title=Reduce%20SmoothAP%20rank%20storage%20to%20positive%20candidates&body=%23%23%20Problem%0A%0ASmoothAP%20builds%20an%20%60N%20%C3%97%20N%20%C3%97%20N%60%20comparison%20tensor%20although%20only%20positive%20query%2Fcandidate%20ranks%20contribute%20to%20average%20precision.%20With%20a%20fixed%20number%20of%20examples%20per%20class%2C%20most%20of%20that%20storage%20and%20backward%20work%20is%20unused.%0A%0A%23%23%20Change%0A%0ACalculate%20ranks%20only%20for%20the%20%60P%60%20positive%20pairs%20belonging%20to%20valid%20queries%2C%20using%20%60P%20%C3%97%20N%60%20comparisons.%20Each%20pair%20still%20ranks%20against%20the%20entire%20batch.%20The%20self-inclusive%20positive%20convention%2C%20candidate%20self-comparison%20mask%2C%20singleton-query%20handling%2C%20and%20miner%20weights%20are%20preserved.%20Half-precision%20per-query%20accumulation%20uses%20float32%20before%20restoring%20the%20output%20dtype.%0A%0AAdd%20a%20retained-autograd-storage%20regression%2C%20all-one-class%20reference%20coverage%2C%20and%20differentiable-zero%20cases%20for%20empty%2Fsingleton%2Fall-unique%20batches.%20Update%20the%20loss%20documentation%2C%20numerical%20design%20notes%2C%20and%20release%20notes.%0A%0A%23%23%20Validation%0A%0A%5BSuccessful%20isolated%20validation%20run%5D(https%3A%2F%2Fgithub.com%2FAfloat16%2Fpytorch-metric-learning%2Factions%2Fruns%2F43665623560)%20checks%20the%20exact%20source%2Ftest%2Fdocumentation%20blobs%20in%20%60c7fe549083aaa0b832d9185642f12c26cceb6b00%60%20against%20upstream%20%60b95a42310f50720a766b91008470b278364f705d%60.%0A%0A-%20The%20new%20storage%20test%20fails%20on%20unchanged%20upstream%3A%208%2C621%2C056%20retained%20bytes%20exceed%20its%202%2C097%2C152-byte%20budget%3B%20it%20passes%20with%20the%20change.%0A-%20Focused%20value%2C%20gradient%2C%20distance-matrix%2C%20and%20composition%20coverage%3A%20**44%20tests%20and%20272%20subtests%20passed**.%0A-%20Complete%20CPU%20suite%3A%20**1%2C531%20tests%20and%202%2C485%20subtests%20passed%3B%2010%20tests%20deselected**.%0A-%20Ruff%20formatting%2Flint%2C%20ty%2C%20strict%20MkDocs%2C%20scoped%20Code%20Polishy%20checks%2C%20dependency%20review%2C%20and%20the%20post-install%20supply-chain%20check%20all%20passed.%0A%0AValues%20and%20gradients%20match%20the%20existing%20independent%20float64%20reference%20within%20its%20dtype-specific%20tolerances%3B%20no%20bitwise-equivalence%20guarantee%20is%20intended.%0A%0A%23%23%23%20Same-run%20CPU%20comparison%0A%0AUbuntu%2024.04.5%2C%20Python%203.12.13%2C%20PyTorch%202.14.0%2Bcu130%20running%20on%20CPU%2C%20one%20Torch%20thread%2C%20float32%20embeddings%20of%20dimension%2032.%20Both%20implementations%20use%20the%20same%20inputs%20and%20settings.%20Timings%20are%20median%20forward%2Bbackward%20times%20after%20two%20warmups%20and%20five%20alternating%20measurements.%0A%0A%7C%20Batch%20%2F%20examples%20per%20class%20%7C%20Before%20%E2%86%92%20after%20ms%20%7C%20Retained%20saved-tensor%20bytes%20before%20%E2%86%92%20after%20%7C%0A%7C%20---%20%7C%20---%3A%20%7C%20---%3A%20%7C%0A%7C%2064%20%2F%204%20%7C%203.408%20%E2%86%92%200.693%20%7C%201%2C119%2C744%20%E2%86%92%20123%2C648%20%7C%0A%7C%20128%20%2F%204%20%7C%2022.372%20%E2%86%92%201.517%20%7C%208%2C637%2C440%20%E2%86%92%20443%2C904%20%7C%0A%7C%20256%20%2F%204%20%7C%20307.319%20%E2%86%92%203.160%20%7C%2068%2C032%2C512%20%E2%86%92%201%2C674%2C240%20%7C%0A%7C%2064%20%2F%2064%20%7C%201.014%20%E2%86%92%202.361%20%7C%201%2C119%2C744%20%E2%86%92%201%2C705%2C728%20%7C%0A%0AThe%20byte%20counts%20measure%20unique%20storages%20retained%20by%20autograd%2C%20**not%20system%20or%20GPU%20peak%20memory**.%20The%20one-class%20case%20still%20has%20%60P%20%3D%20N%C2%B2%60%2C%20remains%20cubic%2C%20and%20has%20extra%20indexing%20overhead%3B%20this%20optimization%20targets%20batches%20with%20sparse%20positive%20pairs.%20The%20validation%20workflow%20stays%20on%20a%20separate%20fork%20branch%20and%20is%20not%20included%20in%20this%20PR.%0A",
+  "create_pr_error": {
+    "error": "GitHub API error 403: {\"message\":\"Resource not accessible by integration\",\"documentation_url\":\"https://docs.github.com/rest/pulls/pulls#create-a-pull-request\",\"status\":\"403\"}",
+    "error_code": "FORBIDDEN",
+    "error_data": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/rest/pulls/pulls#create-a-pull-request",
+      "status": "403"
+    }
+  },
+  "tests": {
+    "full_cpu_passed": 1531,
+    "full_cpu_subtests": 2485,
+    "deselected": 10,
+    "focused_passed": 44,
+    "focused_subtests": 272
+  },
+  "benchmark": {
+    "torch": "2.14.0+cu130",
+    "threads": 1,
+    "results": [
+      {
+        "batch": 64,
+        "per_class": 4,
+        "base_ms": 3.407796000004737,
+        "new_ms": 0.6930280000005951,
+        "base_saved_bytes": 1119744,
+        "new_saved_bytes": 123648,
+        "base_loss": 0.6600930690765381,
+        "new_loss": 0.6600930690765381,
+        "max_gradient_difference": 0
+      },
+      {
+        "batch": 128,
+        "per_class": 4,
+        "base_ms": 22.371532999997612,
+        "new_ms": 1.5168729999999186,
+        "base_saved_bytes": 8637440,
+        "new_saved_bytes": 443904,
+        "base_loss": 0.7101160883903503,
+        "new_loss": 0.7101160883903503,
+        "max_gradient_difference": 0
+      },
+      {
+        "batch": 256,
+        "per_class": 4,
+        "base_ms": 307.3189339999942,
+        "new_ms": 3.1601649999970505,
+        "base_saved_bytes": 68032512,
+        "new_saved_bytes": 1674240,
+        "base_loss": 0.7384553551673889,
+        "new_loss": 0.7384553551673889,
+        "max_gradient_difference": 0
+      },
+      {
+        "batch": 64,
+        "per_class": 64,
+        "base_ms": 1.0137690000107114,
+        "new_ms": 2.361128000003987,
+        "base_saved_bytes": 1119744,
+        "new_saved_bytes": 1705728,
+        "base_loss": 0,
+        "new_loss": 0,
+        "max_gradient_difference": 0
+      }
+    ]
+  },
+  "benchmark_environment": {
+    "os": "Ubuntu 24.04.5",
+    "python": "3.12.13",
+    "device": "CPU",
+    "torch_threads": 1,
+    "dtype": "float32",
+    "embedding_dimension": 32,
+    "warmups": 2,
+    "alternating_measurements": 5,
+    "aggregation": "median",
+    "memory_metric": "unique underlying storages saved by autograd; not peak RSS or VRAM"
+  }
+}
