@@ -1,0 +1,22 @@
+name: SmoothAP focused validation
+on:
+  push:
+    branches: [validation/smoothap-positive-ranks-20261115]
+permissions:
+  contents: read
+jobs:
+  context:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ~/.local/share/code-polishy
+          key: code-polishy-${{ runner.os }}-${{ hashFiles('.code-polishy.lock.json') }}
+      - run: ./code-polishyw setup
+      - run: ./code-polishyw docs read agent-workflows
+      - run: ./code-polishyw design-context --help
