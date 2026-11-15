@@ -36,16 +36,22 @@ class SmoothAPLoss(BaseMetricLossFunction):
         labels = _common.labels_required(labels)
         _common.ref_not_supported(ref_emb)
         sims = _common.resolve_matrix(self.distance, embeddings, None, mat)
-        others = ~torch.eye(len(labels), dtype=torch.bool, device=labels.device)
-        same = (labels.unsqueeze(0) == labels.unsqueeze(1)).to(sims.dtype)
-        differences = sims.unsqueeze(1) - sims.unsqueeze(2)
+        same = labels.unsqueeze(0) == labels.unsqueeze(1)
+        counts = same.sum(dim=1)
+        rows = torch.where(counts > 1)[0]
+        anchors, positives = torch.where(same & (counts > 1).unsqueeze(1))
+        differences = sims[anchors] - sims[anchors, positives].unsqueeze(1)
+        others = torch.arange(len(labels), device=labels.device) != positives.unsqueeze(1)
         above = F.sigmoid(differences / self.temperature) * others
-        all_ranks = 1 + above.sum(dim=-1)
-        positive_ranks = 1 + (above * same.unsqueeze(1)).sum(dim=-1)
-        ap = (positive_ranks / all_ranks * same).sum(dim=1) / same.sum(dim=1)
+        all_ranks = 1 + above.sum(dim=1)
+        positive_ranks = 1 + (above * same[anchors]).sum(dim=1)
+        precision = positive_ranks / all_ranks
+        dtype = _common.accumulation_dtype(sims.dtype)
+        sums = torch.zeros(len(labels), device=sims.device, dtype=dtype)
+        sums = sums.index_add(0, anchors, precision.to(dtype))
+        ap = (sums / counts).to(sims.dtype)
         miner_weights = indexing.convert_to_weights(
             indices_tuple, labels, dtype=ap.dtype
         )
-        rows = torch.where(same.sum(dim=1) > 1)[0]
         loss = (1 - ap[rows]) * miner_weights[rows]
         return {"loss": {"losses": loss, "indices": rows}}

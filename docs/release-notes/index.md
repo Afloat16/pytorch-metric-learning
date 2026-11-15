@@ -1,5 +1,14 @@
 # Release notes
 
+## Unreleased
+
+- `SmoothAPLoss` computes ranks only for positive candidates, reducing comparison
+  memory from cubic to quadratic for batches with a fixed number of samples per
+  class. Its self-inclusive objective, miner weights, output dtype, and gradients
+  are preserved.
+
+## Published releases
+
 - [3.0.3](3.0.3.md)
 - [3.0.2](3.0.2.md)
 - [3.0.1](3.0.1.md)

@@ -5,18 +5,142 @@ on:
 permissions:
   contents: read
 jobs:
-  context:
+  verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 40
+    env:
+      PYTHONPATH: src
+      TEST_DEVICE: cpu
+      TEST_DTYPES: float16,float32,float64
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      CANDIDATE_SHA: 3582eaa1eb3d6e25be71e8b26f01ffc251875935
+      BASE_SHA: b95a42310f50720a766b91008470b278364f705d
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with:
+          version: 0.13.4
+          enable-cache: true
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ~/.local/share/code-polishy
           key: code-polishy-${{ runner.os }}-${{ hashFiles('.code-polishy.lock.json') }}
       - run: ./code-polishyw setup
-      - run: ./code-polishyw docs read agent-workflows
-      - run: ./code-polishyw task-start --files src/pytorch_metric_learning/losses/smooth_ap_loss.py tests/losses/test_smooth_ap_loss.py docs/losses/smooth_ap_loss.md docs/design/numerics.md docs/release-notes/index.md --format json
+      - name: Confirm source and test blobs
+        run: git diff --exit-code "$CANDIDATE_SHA" HEAD -- src/pytorch_metric_learning/losses/smooth_ap_loss.py tests/losses/test_smooth_ap_loss.py docs/losses/smooth_ap_loss.md docs/release-notes/index.md docs/design/numerics.md
+      - name: Review unchanged dependencies
+        run: ./code-polishyw dependency-review --base "$BASE_SHA"
+      - name: Install the frozen development environment
+        run: uv sync --frozen --all-extras --no-build --no-install-project
+      - name: Confirm the new regression fails on unchanged source
+        run: |
+          cp src/pytorch_metric_learning/losses/smooth_ap_loss.py /tmp/smoothap_fixed.py
+          git show "$BASE_SHA:src/pytorch_metric_learning/losses/smooth_ap_loss.py" > /tmp/smoothap_baseline.py
+          cp /tmp/smoothap_baseline.py src/pytorch_metric_learning/losses/smooth_ap_loss.py
+          set +e
+          uv run --frozen --no-sync python -m pytest -q tests/losses/test_smooth_ap_loss.py::TestSmoothAPMemory::test_backward_storage_for_sparse_positive_sets --junitxml=/tmp/smoothap-baseline.xml
+          baseline_status=$?
+          set -e
+          cp /tmp/smoothap_fixed.py src/pytorch_metric_learning/losses/smooth_ap_loss.py
+          test "$baseline_status" -eq 1
+          uv run --frozen --no-sync python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("/tmp/smoothap-baseline.xml").getroot()
+          failures = root.findall(".//testcase/failure")
+          assert len(failures) == 1
+          assert not root.findall(".//testcase/error")
+          assert "not less than" in failures[0].get("message", "")
+          print("The unchanged source fails the retained-memory regression as expected.")
+          PY
+      - name: Run focused mathematical and composition coverage
+        run: uv run --frozen --no-sync python -m pytest -q tests/losses/test_smooth_ap_loss.py tests/losses/test_distance_matrix_input.py tests/losses/test_losses_without_labels.py tests/losses/test_loss_composition.py
+      - name: Check formatting with a readable failure diff
+        run: |
+          uv run --frozen --no-sync ruff format --check || {
+            uv run --frozen --no-sync ruff format src/pytorch_metric_learning/losses/smooth_ap_loss.py tests/losses/test_smooth_ap_loss.py
+            git diff -- src/pytorch_metric_learning/losses/smooth_ap_loss.py tests/losses/test_smooth_ap_loss.py
+            exit 1
+          }
+      - name: Check lint and public types
+        run: |
+          uv run --frozen --no-sync ruff check
+          uv run --frozen --no-sync ty check src tests docs/recipes benchmarks scripts
+      - name: Build documentation
+        run: uv run --frozen --no-sync mkdocs build --strict
+      - name: Compare forward and backward resources
+        run: |
+          uv run --frozen --no-sync python - <<'PY'
+          import importlib.util
+          import json
+          import statistics
+          import time
+          
+          import torch
+          
+          from pytorch_metric_learning.losses import SmoothAPLoss
+          
+          spec = importlib.util.spec_from_file_location(
+              "pytorch_metric_learning.losses._smoothap_baseline",
+              "/tmp/smoothap_baseline.py",
+          )
+          baseline = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(baseline)
+          torch.set_num_threads(1)
+          results = []
+          
+          def evaluate(cls, data, labels, capture=False):
+              inputs = data.clone().requires_grad_()
+              saved = {}
+              def pack(tensor):
+                  storage = tensor.untyped_storage()
+                  saved[storage.data_ptr()] = storage.nbytes()
+                  return tensor
+              if capture:
+                  with torch.autograd.graph.saved_tensors_hooks(pack, lambda x: x):
+                      loss = cls(temperature=0.1)(inputs, labels)
+              else:
+                  loss = cls(temperature=0.1)(inputs, labels)
+              loss.backward()
+              return loss.detach(), inputs.grad, sum(saved.values())
+          
+          for batch, per_class in ((64, 4), (128, 4), (256, 4), (64, 64)):
+              torch.manual_seed(1729 + batch)
+              data = torch.randn(batch, 32)
+              labels = torch.arange(batch // per_class).repeat_interleave(per_class)
+              old_value, old_grad, old_bytes = evaluate(baseline.SmoothAPLoss, data, labels, True)
+              new_value, new_grad, new_bytes = evaluate(SmoothAPLoss, data, labels, True)
+              torch.testing.assert_close(new_value, old_value, rtol=2e-5, atol=1e-7)
+              torch.testing.assert_close(new_grad, old_grad, rtol=2e-5, atol=1e-7)
+              timings = {"base": [], "new": []}
+              for _ in range(2):
+                  evaluate(baseline.SmoothAPLoss, data, labels)
+                  evaluate(SmoothAPLoss, data, labels)
+              for repeat in range(5):
+                  order = (("base", baseline.SmoothAPLoss), ("new", SmoothAPLoss))
+                  if repeat % 2:
+                      order = order[::-1]
+                  for label, cls in order:
+                      started = time.perf_counter()
+                      evaluate(cls, data, labels)
+                      timings[label].append((time.perf_counter() - started) * 1000)
+              results.append({
+                  "batch": batch, "per_class": per_class,
+                  "base_ms": statistics.median(timings["base"]),
+                  "new_ms": statistics.median(timings["new"]),
+                  "base_saved_bytes": old_bytes, "new_saved_bytes": new_bytes,
+                  "base_loss": old_value.item(), "new_loss": new_value.item(),
+                  "max_gradient_difference": (old_grad - new_grad).abs().max().item(),
+              })
+          print(json.dumps({"torch": torch.__version__, "threads": torch.get_num_threads(), "results": results}, indent=2))
+          
+          PY
+      - name: Run the complete CPU suite
+        run: uv run --frozen --no-sync --env-file tests/cpu.env python -m pytest -q
+      - name: Verify the final candidate blobs and whitespace
+        run: |
+          git diff --exit-code "$CANDIDATE_SHA" HEAD -- src/pytorch_metric_learning/losses/smooth_ap_loss.py tests/losses/test_smooth_ap_loss.py docs/losses/smooth_ap_loss.md docs/release-notes/index.md docs/design/numerics.md
+          git diff --check "$BASE_SHA" -- src/pytorch_metric_learning/losses/smooth_ap_loss.py tests/losses/test_smooth_ap_loss.py docs/losses/smooth_ap_loss.md docs/release-notes/index.md docs/design/numerics.md

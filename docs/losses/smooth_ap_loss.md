@@ -29,8 +29,12 @@ any order and with different counts. A query without another positive in the
 batch has no loss term, as in [FastAPLoss](fast_ap_loss.md); its average
 precision would be 1 by construction. With an `indices_tuple`, each query's loss
 is multiplied by its [miner weight](../losses.md#miner-weights). Labels are
-required, and `ref_emb` raises `ValueError`. Memory grows with the cube of the
-batch size.
+required, and `ref_emb` raises `ValueError`. Rank comparisons are computed only
+for same-label query/candidate pairs whose query has another positive. All batch
+rows remain ranking competitors. For batch size $N$ and $P$ such positive pairs
+(including self-pairs), comparison memory grows as $P N$ instead of $N^3$.
+With a fixed number of samples per class, this is quadratic in batch size; a
+single-class batch still has cubic comparison memory.
 
 **Example**:
 
