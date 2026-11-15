@@ -146,6 +146,7 @@ class TestSmoothAPLabelSets(unittest.TestCase):
             [0, 1, 0, 1],
             [2, 0, 2, 1, 1, 0, 0],
             [5, 5, 5, 9],
+            [7, 7, 7, 7],
         )
         for labels in label_sets:
             for dtype in TEST_DTYPES:
@@ -174,3 +175,39 @@ class TestSmoothAPLabelSets(unittest.TestCase):
                         rtol=rtol,
                         atol=atol,
                     )
+
+
+class TestSmoothAPMemory(unittest.TestCase):
+    def test_backward_storage_for_sparse_positive_sets(self):
+        batch_size = 128
+        embeddings = torch.randn(batch_size, 16, device=TEST_DEVICE).requires_grad_()
+        labels = torch.arange(batch_size // 4, device=TEST_DEVICE).repeat_interleave(4)
+        saved_bytes = {}
+
+        def pack(tensor):
+            storage = tensor.untyped_storage()
+            saved_bytes[storage.data_ptr()] = storage.nbytes()
+            return tensor
+
+        with torch.autograd.graph.saved_tensors_hooks(pack, lambda tensor: tensor):
+            loss = SmoothAPLoss(temperature=0.1)(embeddings, labels)
+
+        self.assertLess(
+            sum(saved_bytes.values()),
+            32 * batch_size * batch_size * embeddings.element_size(),
+        )
+        loss.backward()
+        self.assertTrue(torch.isfinite(loss))
+        assert embeddings.grad is not None
+        self.assertTrue(torch.isfinite(embeddings.grad).all())
+
+    def test_no_valid_queries_preserves_differentiable_zero(self):
+        for count in (0, 1, 4):
+            with self.subTest(count=count):
+                embeddings = torch.randn(count, 4, device=TEST_DEVICE).requires_grad_()
+                labels = torch.arange(count, device=TEST_DEVICE)
+                loss = SmoothAPLoss()(embeddings, labels)
+                self.assertEqual(loss.item(), 0)
+                loss.backward()
+                assert embeddings.grad is not None
+                self.assertTrue(torch.equal(embeddings.grad, torch.zeros_like(embeddings)))

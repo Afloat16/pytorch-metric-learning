@@ -673,3 +673,13 @@ loss dictionary uses the reducer's differentiable-zero contract, so backward
 still produces an empty or zero input gradient. The distance runs first to
 preserve its input validation. Two or more centers retain the existing
 nearest-neighbor objective, including negative similarities.
+
+SmoothAP computes rank comparisons only for same-label query/candidate pairs
+whose query has another positive. Every batch row remains a ranking competitor,
+including other classes and singleton classes. This retains the original
+self-inclusive AP ratios while omitting the negative-candidate ratios discarded
+by the objective. For $N$ rows and $P$ eligible positive pairs including self-pairs,
+comparison storage is $O(P N)$ rather than $O(N^3)$; the all-pairs similarity
+matrix remains $O(N^2)$. A single-class batch still has cubic comparison storage.
+Per-query sums use the existing accumulation dtype and then return to the
+similarity dtype, preserving the loss dtype without low-precision scatter sums.
