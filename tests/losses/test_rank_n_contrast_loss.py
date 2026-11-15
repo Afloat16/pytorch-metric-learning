@@ -404,9 +404,7 @@ def explicit_log_ratios(scores, targets, temperature, references=None):
     references = targets if references is None else references
     anchors = []
     for i, target in enumerate(targets):
-        candidates = [
-            j for j in range(len(references)) if not (same_source and j == i)
-        ]
+        candidates = [j for j in range(len(references)) if not (same_source and j == i)]
         terms = []
         for j in candidates:
             gap = abs(target - references[j])
