@@ -623,6 +623,14 @@ tied group to the first member's suffix, which keeps equal distances together as
 in `S_ij` requires. Evaluating each denominator separately would cost `O(N^3)`, as the
 authors' code does.
 
+After excluding self comparisons, each score row is shifted by its maximum before
+temperature scaling. A common offset cancels from every probability ratio, but
+subtracting a large score from a completed log-cumulative-sum can erase the logarithm
+of a small denominator and distort its gradient. Shifting before division also keeps
+represented score differences from rounding during temperature scaling. The shift is
+detached because it is a constant for this invariant objective; it does not change the
+target ordering, tied suffixes, or distance output dtype.
+
 Targets are not cast to the embedding dtype, unlike most label handling here, because
 order is the whole objective, and target distances are computed in float64 for the same
 reason. Keeping targets in their own dtype is not enough: `|y_i - y_j|` and the L1 sum

@@ -19,6 +19,7 @@ jobs:
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
       BASE_SHA: b95a42310f50720a766b91008470b278364f705d
+      CANDIDATE_SHA: bf64183125ca4a57099f794b4c302157e1f5253d
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -32,16 +33,54 @@ jobs:
           path: ~/.local/share/code-polishy
           key: code-polishy-${{ runner.os }}-${{ hashFiles('.code-polishy.lock.json') }}
       - run: ./code-polishyw setup
-      - name: Read the pinned task workflow and capture source context
-        run: |
-          ./code-polishyw docs read agent-workflows
-          ./code-polishyw task-start --files src/pytorch_metric_learning/losses/rank_n_contrast_loss.py tests/losses/test_rank_n_contrast_loss.py docs/losses/rank_n_contrast_loss.md docs/design/numerics.md docs/release-notes/index.md --format json
+      - name: Confirm source and test blobs
+        run: git diff --exit-code "$CANDIDATE_SHA" HEAD -- src/pytorch_metric_learning/losses/rank_n_contrast_loss.py tests/losses/test_rank_n_contrast_loss.py docs/losses/rank_n_contrast_loss.md docs/design/numerics.md docs/release-notes/index.md
       - name: Review the frozen dependencies
         run: ./code-polishyw dependency-review --base "$BASE_SHA"
       - name: Install the frozen development environment
         run: uv sync --frozen --all-extras --no-build --no-install-project
       - run: ./code-polishyw supply-chain
-      - name: Confirm the unchanged public API disagrees with the analytic oracle
+      - name: Confirm unchanged source fails the independent value and gradient regressions
+        run: |
+          git show "$BASE_SHA":src/pytorch_metric_learning/losses/rank_n_contrast_loss.py > /tmp/rankncontrast-baseline.py
+          cp src/pytorch_metric_learning/losses/rank_n_contrast_loss.py /tmp/rankncontrast-fixed.py
+          cp /tmp/rankncontrast-baseline.py src/pytorch_metric_learning/losses/rank_n_contrast_loss.py
+          set +e
+          uv run --frozen --no-sync python -m pytest tests/losses/test_rank_n_contrast_loss.py::TestRankNContrastOffsets -q --junitxml=/tmp/rankncontrast-baseline.xml
+          status=$?
+          set -e
+          cp /tmp/rankncontrast-fixed.py src/pytorch_metric_learning/losses/rank_n_contrast_loss.py
+          BASELINE_STATUS="$status" uv run --frozen --no-sync python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          status = int(os.environ["BASELINE_STATUS"])
+          assert status == 1, f"expected a test failure, got {status}"
+          root = ET.parse("/tmp/rankncontrast-baseline.xml").getroot()
+          failed = [case.attrib["name"] for case in root.iter("testcase") if case.find("failure") is not None]
+          assert not list(root.iter("error")), "baseline had test errors"
+          for expected in ("test_large_euclidean_distances_preserve_value", "test_large_euclidean_distances_preserve_gradients"):
+              assert any(expected in name for name in failed), (expected, failed)
+          print("Expected independent value and gradient regressions failed on unchanged source:", failed)
+          
+          PY
+      - name: Run focused equations, gradients, references and composition coverage
+        run: uv run --frozen --no-sync python -m pytest tests/losses/test_rank_n_contrast_loss.py tests/losses/test_distance_matrix_input.py tests/losses/test_losses_without_labels.py tests/losses/test_loss_composition.py -q
+      - name: Check formatting with a readable failure diff
+        run: |
+          uv run --frozen --no-sync ruff format --check || {
+            uv run --frozen --no-sync ruff format src/pytorch_metric_learning/losses/rank_n_contrast_loss.py tests/losses/test_rank_n_contrast_loss.py
+            git diff -- src/pytorch_metric_learning/losses/rank_n_contrast_loss.py tests/losses/test_rank_n_contrast_loss.py
+            exit 1
+          }
+      - name: Check lint and public types
+        run: |
+          uv run --frozen --no-sync ruff check
+          uv run --frozen --no-sync ty check src tests docs/recipes benchmarks scripts
+      - name: Check the governed source boundary
+        run: ./code-polishyw check --files src/pytorch_metric_learning/losses/rank_n_contrast_loss.py tests/losses/test_rank_n_contrast_loss.py
+      - name: Build documentation
+        run: uv run --frozen --no-sync mkdocs build --strict
+      - name: Report corrected values and gradients from the public API
         run: |
           uv run --frozen --no-sync python - <<'PY'
           import json
@@ -74,8 +113,14 @@ jobs:
                   "expected_reference_gradients": expected_gradient.tolist(),
                   "gradient_matches": gradient_matches, "query_gradient": query.grad.tolist(),
               })
-          assert any(not row["value_matches"] for row in rows)
-          assert any(not row["gradient_matches"] for row in rows)
+          assert all(row["value_matches"] for row in rows)
+          assert all(row["gradient_matches"] for row in rows)
           print(json.dumps({"torch": torch.__version__, "threads": torch.get_num_threads(), "cases": rows}, indent=2))
           
           PY
+      - name: Run the complete CPU suite
+        run: uv run --frozen --no-sync --env-file tests/cpu.env python -m pytest -q
+      - name: Verify final candidate blobs and whitespace
+        run: |
+          git diff --exit-code "$CANDIDATE_SHA" HEAD -- src/pytorch_metric_learning/losses/rank_n_contrast_loss.py tests/losses/test_rank_n_contrast_loss.py docs/losses/rank_n_contrast_loss.md docs/design/numerics.md docs/release-notes/index.md
+          git diff --check "$BASE_SHA" -- src/pytorch_metric_learning/losses/rank_n_contrast_loss.py tests/losses/test_rank_n_contrast_loss.py docs/losses/rank_n_contrast_loss.md docs/design/numerics.md docs/release-notes/index.md
