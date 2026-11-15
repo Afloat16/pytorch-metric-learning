@@ -1,8 +1,11 @@
 import unittest
 from typing import Any
 
+import pytest
 import torch
 from numpy.testing import assert_almost_equal
+from torch.utils._python_dispatch import TorchDispatchMode
+from torch.utils._pytree import tree_leaves
 
 from pytorch_metric_learning.losses import HistogramLoss
 
@@ -212,3 +215,111 @@ class TestHistogramEndpoints(unittest.TestCase):
                 nodes = torch.arange(5, dtype=dtype, device=TEST_DEVICE)
                 (gradient,) = torch.autograd.grad(density @ nodes, distances)
                 helpers.assert_close(gradient, [1.0, 1.0], dtype)
+
+
+def _pair_histogram_reference(embeddings, labels, supplied=None):
+    if supplied is None:
+        positive = [
+            (a, b)
+            for a in range(len(labels))
+            for b in range(len(labels))
+            if a != b and labels[a] == labels[b]
+        ]
+        negative = [
+            (a, b)
+            for a in range(len(labels))
+            for b in range(len(labels))
+            if labels[a] != labels[b]
+        ]
+    elif len(supplied) == 3:
+        positive = list(zip(supplied[0], supplied[1], strict=True))
+        negative = list(zip(supplied[0], supplied[2], strict=True))
+    else:
+        positive = list(zip(supplied[0], supplied[1], strict=True))
+        negative = list(zip(supplied[2], supplied[3], strict=True))
+    shared = {a for a, _ in positive} & {a for a, _ in negative}
+    positive = sorted({tuple(sorted((a, b))) for a, b in positive if a in shared})
+    negative = sorted({tuple(sorted((a, b))) for a, b in negative if a in shared})
+    if not shared:
+        return embeddings[:0].sum()
+    unit = torch.nn.functional.normalize(embeddings, dim=1)
+    matrix = unit @ unit.T
+
+    def density(pairs):
+        values = torch.stack([matrix[a, b] for a, b in pairs]).clamp(-1, 1)
+        return torch.stack(
+            [
+                torch.relu(1 - (values - node).abs() / 0.5).mean()
+                for node in [-1, -0.5, 0, 0.5, 1]
+            ]
+        )
+
+    return (density(negative) * density(positive).cumsum(0)).sum()
+
+
+@pytest.mark.parametrize("use_matrix", [False, True])
+@pytest.mark.parametrize(
+    "supplied",
+    [
+        None,
+        ([0, 0, 1, 3, 5], [1, 1, 0, 4, 4], [0, 1, 4, 4], [2, 2, 2, 0]),
+        ([0, 0, 1, 3], [1, 1, 0, 4], [2, 2, 2, 5]),
+        ([0, 1], [1, 0], [3, 4], [5, 5]),
+        ([], [], [], []),
+    ],
+)
+def test_histogram_pair_selection_preserves_values_and_gradients(supplied, use_matrix):
+    embeddings = torch.randn(
+        6, 5, dtype=torch.float32, device=TEST_DEVICE, requires_grad=True
+    )
+    labels = torch.tensor([0, 0, 1, 2, 2, 3], device=TEST_DEVICE)
+    reference = embeddings.detach().cpu().double().requires_grad_()
+    expected = _pair_histogram_reference(reference, labels.cpu().tolist(), supplied)
+    (expected_gradient,) = torch.autograd.grad(expected, reference)
+    indices = (
+        None
+        if supplied is None
+        else tuple(
+            torch.tensor(v, dtype=torch.long, device=TEST_DEVICE) for v in supplied
+        )
+    )
+    loss_func = HistogramLoss(num_bins=4)
+    matrix = loss_func.distance(embeddings) if use_matrix else None
+    actual = loss_func(embeddings, labels, indices, mat=matrix)
+    (gradient,) = torch.autograd.grad(actual, embeddings)
+    torch.testing.assert_close(actual.cpu().double(), expected, rtol=1e-5, atol=1e-7)
+    torch.testing.assert_close(
+        gradient.cpu().double(), expected_gradient, rtol=1e-4, atol=1e-6
+    )
+
+
+class _LargestTensor(TorchDispatchMode):
+    def __init__(self):
+        super().__init__()
+        self.elements = 0
+
+    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+        result = func(*args, **(kwargs or {}))
+        for value in tree_leaves(result):
+            if isinstance(value, torch.Tensor):
+                self.elements = max(self.elements, value.numel())
+        return result
+
+
+@pytest.mark.parametrize("count", [48, 96])
+def test_histogram_intermediate_tensors_scale_with_pairs(count):
+    embeddings = torch.randn(
+        count, 5, dtype=torch.float32, device=TEST_DEVICE, requires_grad=True
+    )
+    labels = torch.arange(count, device=TEST_DEVICE) // (count // 2)
+    reference = embeddings.detach().cpu().double().requires_grad_()
+    expected = _pair_histogram_reference(reference, labels.cpu().tolist())
+    (expected_gradient,) = torch.autograd.grad(expected, reference)
+    with _LargestTensor() as measured:
+        actual = HistogramLoss(num_bins=4)(embeddings, labels)
+    (gradient,) = torch.autograd.grad(actual, embeddings)
+    torch.testing.assert_close(actual.cpu().double(), expected, rtol=1e-5, atol=1e-7)
+    torch.testing.assert_close(
+        gradient.cpu().double(), expected_gradient, rtol=1e-4, atol=1e-6
+    )
+    assert measured.elements <= 8 * count**2

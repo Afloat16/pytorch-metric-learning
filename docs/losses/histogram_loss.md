@@ -26,9 +26,12 @@ $$
 
 Here $s_{ij}$ is the cosine similarity of pair $(i, j)$, $\mathcal{S}^+$ and $\mathcal{S}^-$ are the sets of positive and negative pairs, $B$ is `num_bins`, $t_r = -1 + r\Delta$ for $r = 0, \ldots, B$ are the nodes of $[-1, 1]$ with spacing $\Delta = 2 / B$, and $p^\pm$ are the linearly interpolated histograms of positive and negative similarities. The loss estimates the probability that a random negative pair is more similar than a random positive pair.
 
-**Implementation notes**: Pairs come from all triplets of the batch, or from
-the supplied `indices_tuple`. Each unordered pair is counted once, so duplicate
-pairs from triplet enumeration do not change the histograms. Similarities must
+**Implementation notes**: Pairs come from the labels or the supplied
+`indices_tuple`. Only anchors with both a selected positive and a selected
+negative contribute, preserving the selection defined by all valid triplets.
+Each unordered pair is counted once. Pair selection does not materialize the
+triplets, so its temporary tensors scale with pairs rather than their Cartesian
+products. Similarities must
 lie in $[-1, 1]$. Similarities are clamped to $[-1, 1]$, so identical or opposite embeddings fall in the end bins.
 
 **Example**:

@@ -1,5 +1,12 @@
 # Release notes
 
+## Unreleased
+
+- Build HistogramLoss histograms directly from eligible pairs, avoiding
+  cubic triplet intermediates while preserving pair selection and gradients.
+
+## Released versions
+
 - [3.0.3](3.0.3.md)
 - [3.0.2](3.0.2.md)
 - [3.0.1](3.0.1.md)

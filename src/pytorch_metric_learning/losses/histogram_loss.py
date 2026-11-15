@@ -50,14 +50,18 @@ class HistogramLoss(BaseMetricLossFunction):
     ) -> LossDict:
         _common.labels_or_indices_tuple_required(labels, indices_tuple)
         _common.ref_not_supported(ref_emb)
-        anchor_idx, positive_idx, negative_idx = indexing.convert_to_triplets(
-            indices_tuple, labels, ref_labels, t_per_anchor="all"
+        pos_anchor, positive_idx, neg_anchor, negative_idx = indexing.convert_to_pairs(
+            indices_tuple, labels, ref_labels
         )
-        if len(anchor_idx) == 0:
+        keep_pos = torch.isin(pos_anchor, neg_anchor)
+        keep_neg = torch.isin(neg_anchor, pos_anchor)
+        pos_anchor, positive_idx = pos_anchor[keep_pos], positive_idx[keep_pos]
+        neg_anchor, negative_idx = neg_anchor[keep_neg], negative_idx[keep_neg]
+        if len(pos_anchor) == 0:
             return {}
         mat = _common.resolve_matrix(self.distance, embeddings, None, mat)
-        ap_dists = mat[_unique_pairs(anchor_idx, positive_idx)]
-        an_dists = mat[_unique_pairs(anchor_idx, negative_idx)]
+        ap_dists = mat[_unique_pairs(pos_anchor, positive_idx)]
+        an_dists = mat[_unique_pairs(neg_anchor, negative_idx)]
         p_pos = self.compute_density(ap_dists)
         phi = torch.cumsum(p_pos, dim=0)
         p_neg = self.compute_density(an_dists)

@@ -189,6 +189,15 @@ matrix of 1.8 GiB for 512 samples with 16 per class, against 87 MiB of output.
 All-triplet enumeration converts all pairs the same way. Output order is by
 positive pair, then negative pair, and empty inputs produce empty tensors.
 
+HistogramLoss needs the unordered pairs participating in at least one triplet,
+not the triplets themselves. It intersects positive and negative anchor sets,
+filters each pair list, and deduplicates unordered pairs directly. This preserves
+restricted candidate and explicit-triplet selection, including anchors present
+on only one side, without materializing every positive-negative combination.
+For dense batches, temporary index tensors now scale with pair count rather
+than with cubic triplet count. Histogram interpolation and the objective are
+unchanged.
+
 Self-comparison removal keeps a pair unless its positive equals the queue slot
 or global row of its anchor, `positive == curr_batch_idx[anchor]`, which needs
 no host synchronization.
