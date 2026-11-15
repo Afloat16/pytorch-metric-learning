@@ -1,0 +1,260 @@
+{
+  "created_at": "2026-11-15 02:40:52 UTC",
+  "status": "validated_ready_for_user_submission",
+  "upstream": "KevinMusgrave/pytorch-metric-learning",
+  "head": "Afloat16:fix/rankncontrast-score-offsets-20261115",
+  "commit": "3ac0ad50082e9fab9753ac4f14c3b8f181c515f3",
+  "base": "b95a42310f50720a766b91008470b278364f705d",
+  "validation_commit": "f0db814271ac8b06783814e7f09ee76f4dddc28d",
+  "validation_url": "https://github.com/Afloat16/pytorch-metric-learning/actions/runs/43668448432",
+  "context_and_baseline_probe_url": "https://github.com/Afloat16/pytorch-metric-learning/actions/runs/43666925454",
+  "title": "Preserve RankNContrast gradients under common score offsets",
+  "body": "## Problem\n\nRankNContrastLoss subtracts each scaled score from a completed suffix log-sum-exp. Large common offsets in an anchor's scores can therefore change both the objective and its gradients, even with finite embeddings and the default unnormalized Euclidean distance.\n\nFor a query at [0, 0], four references at [10000, 0], and reference-target gaps [1, 2, 2, 3], the exact loss is (log(4) + 2*log(3)) / 4 = 0.8958797346. At temperature 0.1, unchanged upstream returns 0.896484375. The middle reference gradients are 0.2157846 instead of 0.2083333, and the query acquires a -0.0041492 gradient where the analytic derivative is zero. The gradient defect also reproduces at the default temperature of 2.\n\n## Change\n\nSubtract the largest eligible score in each row after self-comparison removal and before temperature scaling. This common shift cancels from every probability ratio. Detaching it preserves the objective's gradients without introducing an amax tie derivative.\n\nKeep the existing target ordering, tied suffixes, reference-set semantics, output dtype, and empty-input handling. Add independent analytic value and gradient regressions, a large simplex that exercises self exclusion, and rectangular dot-product cases through both computed and precomputed matrices. Update the loss page, numerical design notes, and release notes.\n\n## Validation\n\nThe baseline is upstream b95a42310f50720a766b91008470b278364f705d. The unchanged source fails all four new regression groups. The same tests pass after the change; the fork workflow checks that the tested source, tests, and documentation exactly match the contribution branch.\n\n[Successful isolated validation run](https://github.com/Afloat16/pytorch-metric-learning/actions/runs/43668448432), with exact contribution blobs from `3ac0ad50082e9fab9753ac4f14c3b8f181c515f3`:\n\n- Focused equation, gradient, reference, matrix, and composition coverage: **66 tests and 296 subtests passed; 1 test deselected**.\n- Complete CPU suite: **1,533 tests and 2,490 subtests passed; 10 tests deselected**.\n- Ruff formatting and lint, ty, strict MkDocs, scoped Code Polishy checks, dependency review, and the post-install supply-chain check all passed.\n- The analytic case now returns 0.8958797455 at both temperatures, and its query gradient is zero. Reference gradients agree with the independent analytic coefficients within float32 tolerances.\n\nThe frozen environment used Python 3.12.13 and PyTorch 2.14.0+cu130 on CPU with float16, float32, and float64 coverage.\n\nOnly the contribution files belong to this PR. The validation workflow remains on a separate fork branch.\n",
+  "prefilled_url": "https://github.com/KevinMusgrave/pytorch-metric-learning/compare/master...Afloat16:pytorch-metric-learning:fix/rankncontrast-score-offsets-20261115?expand=1&title=Preserve%20RankNContrast%20gradients%20under%20common%20score%20offsets&body=%23%23%20Problem%0A%0ARankNContrastLoss%20subtracts%20each%20scaled%20score%20from%20a%20completed%20suffix%20log-sum-exp.%20Large%20common%20offsets%20in%20an%20anchor's%20scores%20can%20therefore%20change%20both%20the%20objective%20and%20its%20gradients%2C%20even%20with%20finite%20embeddings%20and%20the%20default%20unnormalized%20Euclidean%20distance.%0A%0AFor%20a%20query%20at%20%5B0%2C%200%5D%2C%20four%20references%20at%20%5B10000%2C%200%5D%2C%20and%20reference-target%20gaps%20%5B1%2C%202%2C%202%2C%203%5D%2C%20the%20exact%20loss%20is%20(log(4)%20%2B%202*log(3))%20%2F%204%20%3D%200.8958797346.%20At%20temperature%200.1%2C%20unchanged%20upstream%20returns%200.896484375.%20The%20middle%20reference%20gradients%20are%200.2157846%20instead%20of%200.2083333%2C%20and%20the%20query%20acquires%20a%20-0.0041492%20gradient%20where%20the%20analytic%20derivative%20is%20zero.%20The%20gradient%20defect%20also%20reproduces%20at%20the%20default%20temperature%20of%202.%0A%0A%23%23%20Change%0A%0ASubtract%20the%20largest%20eligible%20score%20in%20each%20row%20after%20self-comparison%20removal%20and%20before%20temperature%20scaling.%20This%20common%20shift%20cancels%20from%20every%20probability%20ratio.%20Detaching%20it%20preserves%20the%20objective's%20gradients%20without%20introducing%20an%20amax%20tie%20derivative.%0A%0AKeep%20the%20existing%20target%20ordering%2C%20tied%20suffixes%2C%20reference-set%20semantics%2C%20output%20dtype%2C%20and%20empty-input%20handling.%20Add%20independent%20analytic%20value%20and%20gradient%20regressions%2C%20a%20large%20simplex%20that%20exercises%20self%20exclusion%2C%20and%20rectangular%20dot-product%20cases%20through%20both%20computed%20and%20precomputed%20matrices.%20Update%20the%20loss%20page%2C%20numerical%20design%20notes%2C%20and%20release%20notes.%0A%0A%23%23%20Validation%0A%0AThe%20baseline%20is%20upstream%20b95a42310f50720a766b91008470b278364f705d.%20The%20unchanged%20source%20fails%20all%20four%20new%20regression%20groups.%20The%20same%20tests%20pass%20after%20the%20change%3B%20the%20fork%20workflow%20checks%20that%20the%20tested%20source%2C%20tests%2C%20and%20documentation%20exactly%20match%20the%20contribution%20branch.%0A%0A%5BSuccessful%20isolated%20validation%20run%5D(https%3A%2F%2Fgithub.com%2FAfloat16%2Fpytorch-metric-learning%2Factions%2Fruns%2F43668448432)%2C%20with%20exact%20contribution%20blobs%20from%20%603ac0ad50082e9fab9753ac4f14c3b8f181c515f3%60%3A%0A%0A-%20Focused%20equation%2C%20gradient%2C%20reference%2C%20matrix%2C%20and%20composition%20coverage%3A%20**66%20tests%20and%20296%20subtests%20passed%3B%201%20test%20deselected**.%0A-%20Complete%20CPU%20suite%3A%20**1%2C533%20tests%20and%202%2C490%20subtests%20passed%3B%2010%20tests%20deselected**.%0A-%20Ruff%20formatting%20and%20lint%2C%20ty%2C%20strict%20MkDocs%2C%20scoped%20Code%20Polishy%20checks%2C%20dependency%20review%2C%20and%20the%20post-install%20supply-chain%20check%20all%20passed.%0A-%20The%20analytic%20case%20now%20returns%200.8958797455%20at%20both%20temperatures%2C%20and%20its%20query%20gradient%20is%20zero.%20Reference%20gradients%20agree%20with%20the%20independent%20analytic%20coefficients%20within%20float32%20tolerances.%0A%0AThe%20frozen%20environment%20used%20Python%203.12.13%20and%20PyTorch%202.14.0%2Bcu130%20on%20CPU%20with%20float16%2C%20float32%2C%20and%20float64%20coverage.%0A%0AOnly%20the%20contribution%20files%20belong%20to%20this%20PR.%20The%20validation%20workflow%20remains%20on%20a%20separate%20fork%20branch.%0A",
+  "create_pr_error": {
+    "error": "GitHub API error 403: {\"message\":\"Resource not accessible by integration\",\"documentation_url\":\"https://docs.github.com/rest/pulls/pulls#create-a-pull-request\",\"status\":\"403\"}",
+    "error_code": "FORBIDDEN",
+    "error_data": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/rest/pulls/pulls#create-a-pull-request",
+      "status": "403"
+    }
+  },
+  "tests": {
+    "full_cpu_passed": 1533,
+    "full_cpu_subtests": 2490,
+    "full_cpu_deselected": 10,
+    "focused_passed": 66,
+    "focused_subtests": 296,
+    "focused_deselected": 1,
+    "original_source_regression_failed_groups": [
+      "analytic value",
+      "analytic reference and query gradients",
+      "non-self simplex",
+      "rectangular dot products and precomputed matrices"
+    ]
+  },
+  "baseline_probe": {
+    "torch": "2.14.0+cu130",
+    "threads": 1,
+    "cases": [
+      {
+        "temperature": 0.1,
+        "actual_value": 0.896484375,
+        "expected_value": 0.8958797346140275,
+        "value_matches": false,
+        "actual_reference_gradients": [
+          [
+            1.8706324100494385,
+            0
+          ],
+          [
+            0.21578462421894073,
+            0
+          ],
+          [
+            0.21578462421894073,
+            0
+          ],
+          [
+            -2.2980523109436035,
+            0
+          ]
+        ],
+        "expected_reference_gradients": [
+          [
+            1.875,
+            0
+          ],
+          [
+            0.2083333432674408,
+            0
+          ],
+          [
+            0.2083333432674408,
+            0
+          ],
+          [
+            -2.2916667461395264,
+            0
+          ]
+        ],
+        "gradient_matches": false,
+        "query_gradient": [
+          [
+            -0.004149198532104492,
+            0
+          ]
+        ]
+      },
+      {
+        "temperature": 2,
+        "actual_value": 0.8958740234375,
+        "expected_value": 0.8958797346140275,
+        "value_matches": true,
+        "actual_reference_gradients": [
+          [
+            0.09374600648880005,
+            0
+          ],
+          [
+            0.010454140603542328,
+            0
+          ],
+          [
+            0.010454140603542328,
+            0
+          ],
+          [
+            -0.11455145478248596,
+            0
+          ]
+        ],
+        "expected_reference_gradients": [
+          [
+            0.09375,
+            0
+          ],
+          [
+            0.010416666977107525,
+            0
+          ],
+          [
+            0.010416666977107525,
+            0
+          ],
+          [
+            -0.1145833358168602,
+            0
+          ]
+        ],
+        "gradient_matches": false,
+        "query_gradient": [
+          [
+            -0.00010283291339874268,
+            0
+          ]
+        ]
+      }
+    ]
+  },
+  "corrected_probe": {
+    "torch": "2.14.0+cu130",
+    "threads": 1,
+    "cases": [
+      {
+        "temperature": 0.1,
+        "actual_value": 0.8958797454833984,
+        "expected_value": 0.8958797346140275,
+        "value_matches": true,
+        "actual_reference_gradients": [
+          [
+            1.875,
+            0
+          ],
+          [
+            0.20833328366279602,
+            0
+          ],
+          [
+            0.20833328366279602,
+            0
+          ],
+          [
+            -2.2916665077209473,
+            0
+          ]
+        ],
+        "expected_reference_gradients": [
+          [
+            1.875,
+            0
+          ],
+          [
+            0.2083333432674408,
+            0
+          ],
+          [
+            0.2083333432674408,
+            0
+          ],
+          [
+            -2.2916667461395264,
+            0
+          ]
+        ],
+        "gradient_matches": true,
+        "query_gradient": [
+          [
+            0,
+            0
+          ]
+        ]
+      },
+      {
+        "temperature": 2,
+        "actual_value": 0.8958797454833984,
+        "expected_value": 0.8958797346140275,
+        "value_matches": true,
+        "actual_reference_gradients": [
+          [
+            0.09375,
+            0
+          ],
+          [
+            0.010416664183139801,
+            0
+          ],
+          [
+            0.010416664183139801,
+            0
+          ],
+          [
+            -0.1145833283662796,
+            0
+          ]
+        ],
+        "expected_reference_gradients": [
+          [
+            0.09375,
+            0
+          ],
+          [
+            0.010416666977107525,
+            0
+          ],
+          [
+            0.010416666977107525,
+            0
+          ],
+          [
+            -0.1145833358168602,
+            0
+          ]
+        ],
+        "gradient_matches": true,
+        "query_gradient": [
+          [
+            0,
+            0
+          ]
+        ]
+      }
+    ]
+  },
+  "environment": {
+    "os": "Ubuntu 24.04",
+    "python": "3.12.13",
+    "torch": "2.14.0+cu130",
+    "device": "CPU",
+    "torch_threads": 1,
+    "test_dtypes": [
+      "float16",
+      "float32",
+      "float64"
+    ]
+  },
+  "dedup": "All-state upstream issue/PR searches found no RankNContrast submission. Reviewed Afloat16's 19 historical PRs and existing fork branches; the prior NT-Xent score-shift contribution targets a different objective and implementation. Final pre-submission search showed zero open Afloat16 PRs and upstream head unchanged.",
+  "scope": "Two net production lines plus independent tests and documentation, based directly on upstream; no SmoothAP changes, validation workflow, handoff files, dependencies, or governance edits in the contribution branch.",
+  "validation_notes": "A previous identical-source CI attempt stalled during dependency installation. A fresh runner with a bounded installation step completed all gates. The posted proof URL is the successful full run."
+}
