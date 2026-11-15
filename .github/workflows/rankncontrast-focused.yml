@@ -19,7 +19,7 @@ jobs:
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
       BASE_SHA: b95a42310f50720a766b91008470b278364f705d
-      CANDIDATE_SHA: bf64183125ca4a57099f794b4c302157e1f5253d
+      CANDIDATE_SHA: 3ac0ad50082e9fab9753ac4f14c3b8f181c515f3
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
