@@ -1,5 +1,6 @@
 import unittest
 
+import pytest
 import torch
 
 from pytorch_metric_learning.losses import FastAPLoss
@@ -71,7 +72,75 @@ class TestFastAPLoss(unittest.TestCase):
                 torch.nn.functional.normalize(embeddings), labels, num_bins
             )
             rtol = helpers.rtol(dtype)
-            self.assertTrue(torch.isclose(loss, original_loss, rtol=rtol))
+            self.assertTrue(
+                torch.isclose(loss.double(), original_loss.double(), rtol=rtol)
+            )
 
             with self.assertRaises(ValueError):
                 loss_func(embeddings, labels, ref_emb=ref_emb, ref_labels=ref_labels)
+
+
+@pytest.mark.parametrize("dtype", TEST_DTYPES)
+@pytest.mark.parametrize("per_class", [6, 300])
+def test_fast_ap_histogram_statistics(dtype, per_class):
+    labels = torch.arange(2, device=TEST_DEVICE).repeat_interleave(per_class)
+    positive = labels[:, None] == labels[None, :]
+    diagonal = torch.eye(len(labels), dtype=torch.bool, device=TEST_DEVICE)
+    positive &= ~diagonal
+    negative = labels[:, None] != labels[None, :]
+    matrix = torch.where(positive, 0.125, 1.25).to(device=TEST_DEVICE, dtype=dtype)
+    matrix = matrix.masked_fill(diagonal, 0).requires_grad_()
+    embeddings = torch.zeros((len(labels), 2), device=TEST_DEVICE, dtype=dtype)
+
+    loss = FastAPLoss(num_bins=4)(embeddings, labels, mat=matrix)
+    (gradient,) = torch.autograd.grad(loss, matrix)
+    positives, negatives = per_class - 1, per_class
+    denominator = positives + 0.75 * negatives
+    expected = 0.125 * 0.75 * negatives / denominator
+    torch.testing.assert_close(
+        loss.cpu().double(),
+        torch.tensor(expected, dtype=torch.float64),
+        rtol=1e-6,
+        atol=1e-8,
+    )
+    assert torch.isfinite(gradient).all()
+    assert torch.count_nonzero(gradient[diagonal]) == 0
+    tolerance = 0.03 if dtype in (torch.float16, torch.bfloat16) else 1e-5
+    positive_gradient = 0.75 * negatives / denominator
+    negative_gradient = -0.125 * negatives * positives / denominator**2
+    positive_count = 2 * per_class * positives
+    negative_count = 2 * per_class * negatives
+    expected_positive = torch.tensor(positive_gradient / positive_count, dtype=dtype)
+    expected_negative = torch.tensor(negative_gradient / negative_count, dtype=dtype)
+    torch.testing.assert_close(
+        gradient[positive].cpu().double().sum(),
+        expected_positive.double() * positive_count,
+        rtol=tolerance,
+        atol=1e-8,
+    )
+    torch.testing.assert_close(
+        gradient[negative].cpu().double().sum(),
+        expected_negative.double() * negative_count,
+        rtol=tolerance,
+        atol=1e-8,
+    )
+
+
+@pytest.mark.parametrize("separated", [False, True])
+def test_fast_ap_half_precision_large_embedding_batch(separated):
+    labels = torch.arange(2, device=TEST_DEVICE).repeat_interleave(300)
+    embeddings = torch.zeros((600, 2), dtype=torch.float16, device=TEST_DEVICE)
+    embeddings[:, 0] = 1
+    if separated:
+        embeddings[300:, 0] = -1
+    embeddings.requires_grad_()
+    loss = FastAPLoss(num_bins=4)(embeddings, labels)
+    (gradient,) = torch.autograd.grad(loss, embeddings)
+    expected = 0 if separated else 300 / 599
+    torch.testing.assert_close(
+        loss.cpu().double(),
+        torch.tensor(expected, dtype=torch.float64),
+        rtol=1e-6,
+        atol=1e-8,
+    )
+    assert torch.isfinite(gradient).all()

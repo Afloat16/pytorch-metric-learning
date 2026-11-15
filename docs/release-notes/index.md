@@ -1,5 +1,12 @@
 # Release notes
 
+## Unreleased
+
+- Keep FastAP histogram statistics and reduction in float32 for float16 and
+  bfloat16 distance matrices, avoiding overflow and rounded positive counts.
+
+## Released versions
+
 - [3.0.3](3.0.3.md)
 - [3.0.2](3.0.2.md)
 - [3.0.1](3.0.1.md)

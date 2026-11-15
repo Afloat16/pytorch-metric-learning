@@ -303,6 +303,14 @@ than casting back. Autocast is disabled over the statistics: widening the inputs
 alone still allows the covariance matrix product to narrow again. Mixed-dtype
 views retain the wider precision, and the casts preserve gradients to each view.
 
+FastAP accumulates histogram statistics in the distance matrix's accumulation
+dtype, retaining float32 for float16 and bfloat16 inputs through reduction.
+Even bounded distances can produce unbounded histogram counts: 299 positives
+in a single bin overflow the half-precision product of a bin and its cumulative
+count. Widening only the completed product cannot recover it. Positive counts,
+bin locations, products, and divisions therefore share the working dtype.
+Float64 matrices retain their precision, and casts keep the input gradient path.
+
 ## Stateful modules
 
 Cross-batch memory stores detached reference embeddings. Each forward validates

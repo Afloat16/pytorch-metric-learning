@@ -30,15 +30,15 @@ class FastAPLoss(BaseMetricLossFunction):
     ) -> LossDict:
         labels = _common.labels_required(labels)
         _common.ref_not_supported(ref_emb)
-        dtype, device = embeddings.dtype, embeddings.device
+        dist_mat = _common.resolve_matrix(self.distance, embeddings, None, mat)
+        dtype, device = _common.accumulation_dtype(dist_mat.dtype), dist_mat.device
+        dist_mat = dist_mat.to(dtype)
         miner_weights = indexing.convert_to_weights(indices_tuple, labels, dtype=dtype)
         matches, diffs = indexing._get_matches_and_diffs(labels)
         I_pos = matches.to(dtype)
         I_neg = diffs.to(dtype)
         N_pos = torch.sum(I_pos, dim=1)
         safe_N = N_pos > 0
-        dist_mat = _common.resolve_matrix(self.distance, embeddings, None, mat)
-
         histogram_max = 2**self.distance.power
         histogram_delta = histogram_max / self.num_bins
         mid_points = torch.linspace(

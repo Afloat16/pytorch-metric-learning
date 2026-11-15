@@ -28,6 +28,13 @@ where the product $h_q^+ H_q^+$ or $H_q$ is zero contribute 0. With an
 `indices_tuple`, each query's loss is multiplied by its
 [miner weight](../losses.md#miner-weights).
 
+Histogram counts, products, and the nonempty loss use float32 when the distance
+matrix is float16 or bfloat16. This keeps the objective finite when a histogram bin
+contains hundreds of positives and avoids rounding positive counts before
+normalization. Float32 and float64 matrices retain their dtype; gradients
+return to the original embeddings or supplied matrix. With no valid positives,
+the existing differentiable-zero result retains the embeddings' dtype.
+
 **Example**:
 
 ```python
