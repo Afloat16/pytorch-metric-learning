@@ -1,3 +1,4 @@
+import math
 import unittest
 
 import pytest
@@ -396,3 +397,117 @@ class TestRankNContrastLoss(unittest.TestCase):
                 losses.RankNContrastLoss(temperature=value)
         with self.assertRaisesRegex(ValueError, "label_ndim"):
             losses.RankNContrastLoss(label_ndim=3)
+
+
+def explicit_log_ratios(scores, targets, temperature, references=None):
+    same_source = references is None
+    references = targets if references is None else references
+    anchors = []
+    for i, target in enumerate(targets):
+        candidates = [
+            j for j in range(len(references)) if not (same_source and j == i)
+        ]
+        terms = []
+        for j in candidates:
+            gap = abs(target - references[j])
+            keep = [k for k in candidates if abs(target - references[k]) >= gap]
+            logits = (scores[i, keep] - scores[i, j]) / temperature
+            terms.append(torch.logsumexp(logits, dim=0))
+        anchors.append(torch.stack(terms).mean())
+    return torch.stack(anchors).mean()
+
+
+def distant_reference_case(temperature):
+    query = tensor([[0.0, 0.0]], torch.float32).requires_grad_()
+    reference = tensor([[10000.0, 0.0]] * 4, torch.float32).requires_grad_()
+    value = losses.RankNContrastLoss(temperature=temperature)(
+        query,
+        tensor([0.0]),
+        ref_emb=reference,
+        ref_labels=tensor([1.0, 2.0, 2.0, 3.0]),
+    )
+    return value, query, reference
+
+
+class TestRankNContrastOffsets(unittest.TestCase):
+    def test_large_euclidean_distances_preserve_value(self):
+        expected = (math.log(4) + 2 * math.log(3)) / 4
+        for temperature in (0.1, 2.0):
+            with self.subTest(temperature=temperature):
+                value, _, _ = distant_reference_case(temperature)
+                torch.testing.assert_close(
+                    value, value.new_tensor(expected), rtol=1e-5, atol=1e-6
+                )
+
+    def test_large_euclidean_distances_preserve_gradients(self):
+        coefficients = tensor(
+            [[3 / 16, 0], [1 / 48, 0], [1 / 48, 0], [-11 / 48, 0]],
+            torch.float32,
+        )
+        for temperature in (0.1, 2.0):
+            with self.subTest(temperature=temperature):
+                value, query, reference = distant_reference_case(temperature)
+                value.backward()
+                assert query.grad is not None and reference.grad is not None
+                torch.testing.assert_close(
+                    reference.grad, coefficients / temperature, rtol=1e-5, atol=1e-6
+                )
+                torch.testing.assert_close(
+                    query.grad, torch.zeros_like(query), rtol=0, atol=1e-6
+                )
+
+    def test_large_simplex_excludes_self_scores(self):
+        values = [0.0, 1.0, 2.0, 3.0]
+        targets = tensor(values)
+        for dtype in TEST_DTYPES:
+            with self.subTest(dtype=dtype):
+                embeddings = 10000 * torch.eye(4, device=TEST_DEVICE, dtype=dtype)
+                helpers.assert_matches_float64(
+                    lambda x: losses.RankNContrastLoss(temperature=0.1)(x, targets),
+                    lambda x: explicit_log_ratios(
+                        -torch.linalg.vector_norm(x[:, None] - x[None, :], dim=-1),
+                        values,
+                        0.1,
+                    ),
+                    (embeddings,),
+                    dtype,
+                )
+
+    def test_large_similarity_offsets_with_separate_references(self):
+        targets = [0.0, 2.0, 4.0]
+        ref_targets = [1.0, 2.0, 2.0, 3.0, 5.0]
+        relative = tensor(
+            [
+                [0.0, 0.5, -0.5, 1.0, 1.5],
+                [1.0, -1.5, 0.5, 0.0, -0.5],
+                [-1.0, 0.5, 1.5, -0.5, 0.0],
+            ],
+            torch.float32,
+        )
+        shifts = tensor([[-32768.0], [65536.0], [131072.0]], torch.float32)
+        reference = torch.eye(5, device=TEST_DEVICE, dtype=torch.float32)
+        for temperature in (0.5, 2.0):
+            for precomputed in (False, True):
+                with self.subTest(temperature=temperature, precomputed=precomputed):
+                    loss_func = losses.RankNContrastLoss(
+                        temperature=temperature,
+                        distance=distances.DotProductSimilarity(),
+                    )
+
+                    def compute(x, f=loss_func, use_mat=precomputed):
+                        return f(
+                            x,
+                            tensor(targets),
+                            ref_emb=reference,
+                            ref_labels=tensor(ref_targets),
+                            mat=x if use_mat else None,
+                        )
+
+                    helpers.assert_matches_float64(
+                        compute,
+                        lambda x, t=temperature: explicit_log_ratios(
+                            x - shifts.double(), targets, t, ref_targets
+                        ),
+                        (relative + shifts,),
+                        torch.float32,
+                    )

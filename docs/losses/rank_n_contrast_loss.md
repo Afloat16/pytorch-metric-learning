@@ -50,7 +50,10 @@ sample's denominator holds all others.
 target distance, computed once with `logcumsumexp`, so one forward pass costs
 $O(N^2 \log N)$ time rather than the $O(N^3)$ of evaluating each denominator. Peak memory
 is proportional to the distance matrix. float16 and bfloat16 embeddings accumulate in
-float32. With a similarity distance, $s$ is its value. A batch with no other sample gives
+float32. Each row is shifted by its largest eligible similarity before temperature
+scaling. This leaves the objective unchanged while preserving small log probabilities
+and gradients when unnormalized distances or dot products share a large offset.
+With a similarity distance, $s$ is its value. A batch with no other sample gives
 a differentiable zero. `indices_tuple` raises `ValueError`, because every sample is both
 a positive and a negative at different ranks.
 

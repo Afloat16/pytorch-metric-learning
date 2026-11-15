@@ -73,7 +73,9 @@ class RankNContrastLoss(BaseMetricLossFunction):
             separation = separation[others].view(rows, columns)
         separation, order = torch.sort(separation, dim=1)
         first_tied = torch.searchsorted(separation, separation, side="left")
-        scores = scores.gather(1, order.to(scores.device)) / self.temperature
+        scores = scores.gather(1, order.to(scores.device))
+        scores = scores - scores.amax(dim=1, keepdim=True).detach()
+        scores = scores / self.temperature
         tail = torch.logcumsumexp(scores.flip(1), dim=1).flip(1)
         denominators = tail.gather(1, first_tied.to(scores.device))
         losses = (denominators - scores).mean(dim=1)
