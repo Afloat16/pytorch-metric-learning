@@ -41,7 +41,9 @@ class SmoothAPLoss(BaseMetricLossFunction):
         rows = torch.where(counts > 1)[0]
         anchors, positives = torch.where(same & (counts > 1).unsqueeze(1))
         differences = sims[anchors] - sims[anchors, positives].unsqueeze(1)
-        others = torch.arange(len(labels), device=labels.device) != positives.unsqueeze(1)
+        others = torch.arange(len(labels), device=labels.device) != positives.unsqueeze(
+            1
+        )
         above = F.sigmoid(differences / self.temperature) * others
         all_ranks = 1 + above.sum(dim=1)
         positive_ranks = 1 + (above * same[anchors]).sum(dim=1)

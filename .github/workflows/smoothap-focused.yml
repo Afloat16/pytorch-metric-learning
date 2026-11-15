@@ -14,7 +14,7 @@ jobs:
       TEST_DTYPES: float16,float32,float64
       OMP_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
-      CANDIDATE_SHA: 3582eaa1eb3d6e25be71e8b26f01ffc251875935
+      CANDIDATE_SHA: c7fe549083aaa0b832d9185642f12c26cceb6b00
       BASE_SHA: b95a42310f50720a766b91008470b278364f705d
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -36,6 +36,8 @@ jobs:
         run: ./code-polishyw dependency-review --base "$BASE_SHA"
       - name: Install the frozen development environment
         run: uv sync --frozen --all-extras --no-build --no-install-project
+      - name: Complete the deferred dependency checks
+        run: ./code-polishyw supply-chain
       - name: Confirm the new regression fails on unchanged source
         run: |
           cp src/pytorch_metric_learning/losses/smooth_ap_loss.py /tmp/smoothap_fixed.py
@@ -69,6 +71,8 @@ jobs:
         run: |
           uv run --frozen --no-sync ruff check
           uv run --frozen --no-sync ty check src tests docs/recipes benchmarks scripts
+      - name: Check the governed source boundary
+        run: ./code-polishyw check --files src/pytorch_metric_learning/losses/smooth_ap_loss.py tests/losses/test_smooth_ap_loss.py
       - name: Build documentation
         run: uv run --frozen --no-sync mkdocs build --strict
       - name: Compare forward and backward resources
