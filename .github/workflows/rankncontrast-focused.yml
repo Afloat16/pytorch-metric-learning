@@ -38,6 +38,7 @@ jobs:
       - name: Review the frozen dependencies
         run: ./code-polishyw dependency-review --base "$BASE_SHA"
       - name: Install the frozen development environment
+        timeout-minutes: 10
         run: uv sync --frozen --all-extras --no-build --no-install-project
       - run: ./code-polishyw supply-chain
       - name: Confirm unchanged source fails the independent value and gradient regressions
